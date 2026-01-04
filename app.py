@@ -297,7 +297,8 @@ def calculate_summary(expenses, start_date, end_date):
         return {
             'total': 0,
             'count': 0,
-            'average': 0,
+            'average_per_day': 0,
+            'num_days': 0,
             'by_category': [],
             'by_description': []
         }
@@ -310,18 +311,22 @@ def calculate_summary(expenses, start_date, end_date):
     mask = (df['date'] >= pd.to_datetime(start_date)) & (df['date'] <= pd.to_datetime(end_date))
     df = df[mask]
     
+    # Calculate total days in the selected period
+    period_days = (pd.to_datetime(end_date) - pd.to_datetime(start_date)).days + 1
+    
     if df.empty:
         return {
             'total': 0,
             'count': 0,
-            'average': 0,
+            'average_per_day': 0,
+            'num_days': period_days,
             'by_category': [],
             'by_description': []
         }
     
     total = df['amount'].sum()
     count = len(df)
-    average = total / count if count > 0 else 0
+    average_per_day = total / period_days if period_days > 0 else 0
     
     by_category = df.groupby('category').agg({
         'amount': 'sum',
@@ -338,7 +343,8 @@ def calculate_summary(expenses, start_date, end_date):
     return {
         'total': total,
         'count': count,
-        'average': average,
+        'average_per_day': average_per_day,
+        'num_days': period_days,
         'by_category': by_category.to_dict('records'),
         'by_description': by_description.to_dict('records')
     }
@@ -503,28 +509,47 @@ def demo_mode(supabase):
         st.subheader("📊 Summary & Analysis")
         
         # Time period selector
-        period_options = {
-            'Week': 7,
-            'Month': 30,
-            '3 Months': 90,
-            '6 Months': 180,
-            'Year': 365,
-            'Custom': 0
-        }
+        period_options = ['This Month', 'This Week', 'Last 3 Months', 'Last 6 Months', 'This Year', 'Custom']
         
-        selected_period = st.selectbox("Time Period", options=list(period_options.keys()))
+        selected_period = st.selectbox("Time Period", options=period_options, index=0)
         
         today = get_baku_date()
         
         if selected_period == 'Custom':
             date_col1, date_col2 = st.columns(2)
             with date_col1:
-                start_date = st.date_input("Start Date", value=today - timedelta(days=30))
+                start_date = st.date_input("Start Date", value=today.replace(day=1))
             with date_col2:
                 end_date = st.date_input("End Date", value=today)
+        elif selected_period == 'This Month':
+            start_date = today.replace(day=1)  # 1st of current month
+            end_date = today
+        elif selected_period == 'This Week':
+            start_date = today - timedelta(days=today.weekday())  # Monday of this week
+            end_date = today
+        elif selected_period == 'Last 3 Months':
+            # Go back 3 months from the 1st of current month
+            month = today.month - 3
+            year = today.year
+            if month <= 0:
+                month += 12
+                year -= 1
+            start_date = today.replace(year=year, month=month, day=1)
+            end_date = today
+        elif selected_period == 'Last 6 Months':
+            # Go back 6 months from the 1st of current month
+            month = today.month - 6
+            year = today.year
+            if month <= 0:
+                month += 12
+                year -= 1
+            start_date = today.replace(year=year, month=month, day=1)
+            end_date = today
+        elif selected_period == 'This Year':
+            start_date = today.replace(month=1, day=1)  # January 1st
+            end_date = today
         else:
-            days = period_options[selected_period]
-            start_date = today - timedelta(days=days)
+            start_date = today.replace(day=1)
             end_date = today
         
         # Get and calculate summary
@@ -546,7 +571,7 @@ def demo_mode(supabase):
         with stat_col2:
             st.metric("Transactions", summary['count'])
         with stat_col3:
-            st.metric("Average", f"₼{summary['average']:.2f}")
+            st.metric("Avg/Day", f"₼{summary['average_per_day']:.2f}")
         
         # Charts
         if summary['by_category']:
